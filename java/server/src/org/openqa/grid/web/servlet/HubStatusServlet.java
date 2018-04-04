@@ -19,6 +19,7 @@ package org.openqa.grid.web.servlet;
 
 import com.google.common.io.CharStreams;
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -27,14 +28,18 @@ import com.google.gson.JsonSyntaxException;
 import org.openqa.grid.common.exception.GridException;
 import org.openqa.grid.internal.GridRegistry;
 import org.openqa.grid.internal.RemoteProxy;
+import org.openqa.grid.internal.TestSlot;
+import org.openqa.selenium.remote.CapabilityType;
 
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
@@ -75,8 +80,6 @@ public class HubStatusServlet extends RegistryBasedServlet {
       throws ServletException, IOException {
     process(request, response);
   }
-
-
 
   protected void process(HttpServletRequest request, HttpServletResponse response)
       throws IOException {
@@ -122,6 +125,10 @@ public class HubStatusServlet extends RegistryBasedServlet {
         if (keysToReturn == null || keysToReturn.isEmpty() || keysToReturn.contains("slotCounts")) {
           res.add("slotCounts", getSlotCounts());
         }
+
+        if (keysToReturn == null || keysToReturn.isEmpty() || keysToReturn.contains("browsers")) {
+          res.add("browsers", getBrowsers());
+        }
       }
     } catch (Exception e) {
       res.remove("success");
@@ -159,4 +166,49 @@ public class HubStatusServlet extends RegistryBasedServlet {
     }
     return requestJSON;
   }
+
+  /**
+   * Get browsers availability.
+   * @return
+   * @throws JsonSyntaxException
+   */
+  private JsonArray getBrowsers() throws JsonSyntaxException {
+
+    // Récupération des navigateurs avec dispo sur chaque sonde
+    Map<String, Integer> freeBrowserSlots = new HashMap<>();
+    Map<String, Integer> totalBrowserSlots = new HashMap<>();
+    for (RemoteProxy proxy : getRegistry().getAllProxies()) {
+      for (TestSlot slot : proxy.getTestSlots()) {
+        String slot_browser_name = slot.getCapabilities().get(CapabilityType.BROWSER_NAME).toString().toUpperCase();
+        if (slot.getSession() == null) {
+          if (freeBrowserSlots.containsKey(slot_browser_name)) {
+            freeBrowserSlots.put(slot_browser_name, freeBrowserSlots.get(slot_browser_name) + 1);
+          } else {
+            freeBrowserSlots.put(slot_browser_name, 1);
+          }
+        }
+        if (totalBrowserSlots.containsKey(slot_browser_name)) {
+          totalBrowserSlots.put(slot_browser_name, totalBrowserSlots.get(slot_browser_name) + 1);
+        } else {
+          totalBrowserSlots.put(slot_browser_name, 1);
+        }
+      }
+    }
+
+    // Construction de l'objet Json
+    JsonArray browsers = new JsonArray();
+    for (Entry<String, Integer> entry : totalBrowserSlots.entrySet()) {
+      JsonObject browser = new JsonObject();
+      browser.addProperty("name", entry.getKey());
+      browser.addProperty("total", entry.getValue());
+      if (freeBrowserSlots.containsKey(entry.getKey())) {
+        browser.addProperty("free", freeBrowserSlots.get(entry.getKey()));
+      } else {
+        browser.addProperty("free", 0);
+      }
+      browsers.add(browser);
+    }
+    return browsers;
+  }
+
 }
